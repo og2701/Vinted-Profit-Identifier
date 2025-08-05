@@ -127,7 +127,7 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
         driver.get(search_url)
         
         try:
-            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.ais-Hits")))
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.ais-Hits")))
         except TimeoutException:
             log_messages.append("-> CeX: Timed out waiting for search results to load.")
             return None
@@ -161,15 +161,22 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
         
         price_text = None
         try:
-            price_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")))
+            price_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']"))
+            )
             price_text = price_element.text
-        except Exception:
+        except TimeoutException:
             try:
-                price_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
+                price_element = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span"))
+                )
                 price_text = price_element.text
-            except Exception:
-                log_messages.append(f"-> CeX: Found product page but could not find price element.")
+            except TimeoutException:
+                log_messages.append(f"-> CeX: Found product page but could not find price element after waiting.")
                 return None
+        except Exception as e:
+            log_messages.append(f"-> CeX: An error occurred while finding the price: {type(e).__name__}")
+            return None
 
         if price_text:
             cleaned_price = re.sub(r'[^\d.]', '', price_text)
