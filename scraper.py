@@ -9,7 +9,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
-    StaleElementReferenceException
+    StaleElementReferenceException,
+    WebDriverException
 )
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
@@ -119,6 +120,9 @@ def get_cex_buy_price(driver, query, log_messages):
             log_messages.append(f"-> CeX: Found cash price £{cleaned_price}.")
             return {'price': float(cleaned_price), 'link': product_url}
         
+        return None
+    except WebDriverException as e:
+        log_messages.append(f"-> CeX: A critical WebDriver error occurred during scraping: {type(e).__name__}")
         return None
     except Exception as e:
         log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {type(e).__name__}")
