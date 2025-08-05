@@ -69,95 +69,57 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_me
         log_messages.append(f"-> AI query failed for '{title}': {e}")
         return title
 
-def select_best_cex_match(vinted_item_details, cex_results, log_messages):
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        log_messages.append("-> ERROR: OPENAI_API_KEY not found. Cannot select best match.")
-        return None
-
-    formatted_results = "\n".join([f"{i+1}. Title: {res['boxName']}, ID: {res['boxId']}" for i, res in enumerate(cex_results)])
-    
-    try:
-        client = OpenAI(api_key=api_key)
-        prompt = f"""
-        You are an expert product matcher. A user wants to find the CeX equivalent of a Vinted item.
-        Based on the Vinted item details below, choose the best match from the list of CeX search results.
-
-        **Vinted Item Details:**
-        - Title: "{vinted_item_details.get('title', 'N/A')}"
-        - Description: "{vinted_item_details.get('description', 'N/A')}"
-        - Attributes: {vinted_item_details.get('scraped_attributes', {})}
-
-        **CeX Search Results:**
-        {formatted_results}
-
-        **Instructions:**
-        1. Carefully compare the Vinted item's platform (e.g., PS5, Xbox, PC), edition (e.g., Day One Edition, Standard), and core name to the CeX results.
-        2. Select the most accurate match. For example, if the Vinted item is for PS5, do not choose a PC or Xbox version.
-        3. If there is a clear and confident match, return ONLY the ID of that item.
-        4. If no result is a clear match, return the single word: N/A
-        """
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert product matcher. Your task is to find the best match for a Vinted item from a list of CeX search results and return only the ID or 'N/A'."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.0
-        )
-        best_match_id = response.choices[0].message.content.strip()
-        
-        if best_match_id and best_match_id != 'N/A':
-            log_messages.append(f"-> AI selected best match ID: {best_match_id}")
-            return best_match_id
-        else:
-            log_messages.append("-> AI determined no suitable match was found in CeX results.")
-            return None
-    except Exception as e:
-        log_messages.append(f"-> AI match selection failed: {e}")
-        return None
-
-
-def get_cex_buy_price(query, vinted_item_details, log_messages):
+def get_cex_buy_price(driver, query, log_messages):
     if not query or query.upper() == 'N/A':
         return None
-    
+        
     try:
-        api_url = "https://wss2.webuy.com/v3/boxes/search"
-        payload = {"query": query}
+        search_url = f"https://uk.webuy.com/search?stext={query.replace(' ', '+')}"
+        driver.get(search_url)
         
-        response = requests.post(api_url, json=payload)
-        response.raise_for_status()
+        try:
+            accept_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Accept All']")))
+            accept_button.click()
+            time.sleep(0.5)
+        except Exception:
+            pass
         
-        data = response.json()
-        
-        if data.get('responseCode') != 'SUCCESS' or not data.get('response', {}).get('data', {}).get('boxes'):
-            log_messages.append(f"-> CeX API: No results found for query '{query}'.")
-            return None
+        try:
+            if driver.find_element(By.CSS_SELECTOR, "div.cx-no-results").is_displayed():
+                return None
+        except NoSuchElementException:
+            pass
 
-        cex_results = data['response']['data']['boxes']
-        best_match_id = select_best_cex_match(vinted_item_details, cex_results, log_messages)
+        first_result_selector = (By.CSS_SELECTOR, "div.card-title a")
+        first_result = WebDriverWait(driver, 10).until(EC.element_to_be_clickable(first_result_selector))
+        
+        current_url_before_click = driver.current_url
+        driver.execute_script("arguments[0].click();", first_result)
+        
+        WebDriverWait(driver, 10).until(EC.url_changes(current_url_before_click))
+        
+        price_text = None
+        try:
+            price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")))
+            price_text = price_element.text
+        except Exception:
+            try:
+                price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
+                price_text = price_element.text
+            except Exception:
+                log_messages.append("-> CeX: Could not find price element.")
+                log_messages.append("--- DEBUG: Page HTML at Price Failure ---")
+                log_messages.append(driver.page_source)
+                log_messages.append("--- END DEBUG ---")
+                return None
 
-        if not best_match_id:
-            return None
+        if price_text:
+            price_cleaned = re.sub(r'[^\d.]', '', price_text)
+            cex_product_url = driver.current_url
+            return {'price': float(price_cleaned), 'link': cex_product_url}
         
-        for box in cex_results:
-            if box.get('boxId') == best_match_id:
-                cash_price = box.get('cashPrice')
-                if cash_price:
-                    log_messages.append(f"-> CeX API: Found cash price £{cash_price:.2f}.")
-                    product_url = f"https://uk.webuy.com/product-detail/?id={best_match_id}"
-                    return {"price": cash_price, "link": product_url}
-        
-        log_messages.append(f"-> CeX API: Match ID {best_match_id} found by AI, but no corresponding price in API response.")
         return None
-
-    except requests.exceptions.RequestException as e:
-        log_messages.append(f"-> CeX API: A network error occurred: {e}")
-        return None
-    except Exception as e:
-        log_messages.append(f"-> CeX API: An unexpected error occurred: {type(e).__name__}")
+    except Exception:
         return None
 
 def scrape_vinted_item_page(driver):
@@ -285,7 +247,7 @@ def process_item(item, search_category):
         item['postage'] = postage
 
         clean_query = generate_cex_query_from_vinted_listing(item, search_category, log_messages)
-        cex_data = get_cex_buy_price(clean_query, item, log_messages)
+        cex_data = get_cex_buy_price(thread_driver, clean_query, log_messages)
 
         postage_cost = item.get('postage')
         if cex_data and isinstance(postage_cost, (int, float)):
