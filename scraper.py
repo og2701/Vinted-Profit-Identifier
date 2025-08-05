@@ -156,51 +156,32 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
 
         driver.get(best_match_url)
         try:
-            WebDriverWait(driver, 5).until(EC.any_of(
-                EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")),
-                EC.presence_of_element_located((By.XPATH, "//h1"))
-            ))
-            try:
-                btn = driver.find_element(By.ID, "onetrust-accept-btn-handler")
-                if btn.is_displayed():
-                    btn.click()
-            except Exception:
-                pass
-        except Exception:
+            accept_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'accept')]"))
+            )
+            accept_btn.click()
+        except (NoSuchElementException, TimeoutException):
             pass
 
         try:
-            cash_span = WebDriverWait(driver, 20).until(EC.visibility_of_element_located((
-                By.XPATH,
-                "//div[contains(@class,'trade-in-value')]//strong[normalize-space(.)='CASH']/following-sibling::span[contains(@class,'offer-price')]"
-            )))
-        except TimeoutException:
-            try:
-                cash_span = WebDriverWait(driver, 8).until(EC.visibility_of_element_located((
-                    By.XPATH,
-                    "//h4[normalize-space(.)='Trade-in value']/following::span[contains(@class,'offer-price')][1]"
-                )))
-            except TimeoutException:
-                log_messages.append("-> CeX: Found product page but could not find price element.")
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'trade-in')]"))
+            )
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+            match = re.search(r'CASH\s*£\s*([0-9]+\.?[0-9]*)', page_text, flags=re.IGNORECASE) \
+                or re.search(r'£\s*([0-9]+\.?[0-9]*)\s*Trade-?in\s+for\s+Cash', page_text, flags=re.IGNORECASE)
+            
+            if match:
+                cash_price = float(match.group(1))
+                log_messages.append(f"-> CeX: Found cash price £{cash_price:.2f}.")
+                return {"price": cash_price, "link": driver.current_url}
+            else:
+                log_messages.append("-> CeX: Could not find price in page text.")
                 return None
-
-        try:
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", cash_span)
-        except Exception:
-            pass
-
-        price_text = cash_span.text.strip()
-        if not price_text:
-            price_text = cash_span.get_attribute("textContent") or ""
-
-        cleaned_price = re.sub(r"[^\d.]", "", price_text)
-        if not cleaned_price:
-            log_messages.append("-> CeX: Price element found but contained no numeric value.")
+        except TimeoutException:
+            log_messages.append("-> CeX: Timed out waiting for trade-in section.")
             return None
 
-        product_url = driver.current_url
-        log_messages.append(f"-> CeX: Found cash price £{cleaned_price}.")
-        return {"price": float(cleaned_price), "link": product_url}
     except Exception as e:
         log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {type(e).__name__}")
         return None
