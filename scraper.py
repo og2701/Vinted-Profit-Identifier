@@ -268,7 +268,7 @@ def process_item(item, search_category):
     try:
         thread_driver = get_driver()
         thread_driver.get(item['link'])
-        time.sleep(1)
+        time.sleep(2)
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
@@ -281,12 +281,18 @@ def process_item(item, search_category):
         is_scraped = False
         for attempt in range(2):
             try:
-                sidebar_content = WebDriverWait(thread_driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content"))
+                price_element = WebDriverWait(thread_driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid='item-price'] p"))
                 )
                 
+                sidebar_content = thread_driver.find_element(By.CSS_SELECTOR, "div.item-page-sidebar-content")
+                
                 title = sidebar_content.find_element(By.CSS_SELECTOR, "h1[class*='title']").text.strip()
-                price_text = sidebar_content.find_element(By.CSS_SELECTOR, "div[data-testid='item-price'] p").text
+                price_text = price_element.text
+
+                if not price_text or not any(char.isdigit() for char in price_text):
+                    raise ValueError("Price text not found or invalid.")
+
                 price = float(re.sub(r'[^\d.]', '', price_text))
                 
                 item['title'] = title
@@ -298,9 +304,12 @@ def process_item(item, search_category):
                     log_messages.append(f"!! Could not parse title/price, refreshing and retrying. Error: {type(e).__name__}")
                     time.sleep(1)
                     thread_driver.refresh()
-                    time.sleep(2)
+                    time.sleep(3)
                 else:
                     log_messages.append(f"!! Failed to parse title/price after retrying. Skipping. Error: {type(e).__name__}")
+                    log_messages.append("--- DEBUG: Page source at failure ---")
+                    log_messages.append(thread_driver.page_source[:2000])
+                    log_messages.append("--- END DEBUG ---")
                     print("\n".join(log_messages))
                     return
         
