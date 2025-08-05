@@ -226,21 +226,20 @@ def scrape_vinted_item_page(driver):
     return scraped_attributes, description
 
 def handle_popups(driver):
-    try:
-        accept_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")))
-        accept_button.click()
-        time.sleep(0.5)
-    except (NoSuchElementException, TimeoutException):
-        pass
+    for _ in range(2):
+        try:
+            cookie_button = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")))
+            driver.execute_script("arguments[0].click();", cookie_button)
+            time.sleep(0.5)
+        except (NoSuchElementException, TimeoutException):
+            pass
 
-    try:
-        dialog_close_button = WebDriverWait(driver, 2).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='dialog-close-button']"))
-        )
-        dialog_close_button.click()
-        time.sleep(0.5)
-    except (NoSuchElementException, TimeoutException):
-        pass
+        try:
+            dialog_button = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='dialog-close-button']")))
+            driver.execute_script("arguments[0].click();", dialog_button)
+            time.sleep(0.5)
+        except (NoSuchElementException, TimeoutException):
+            pass
 
 def scrape_vinted_search_page(driver, query, num_items_to_check=200):
     encoded_query = query.replace(' ', '+')
