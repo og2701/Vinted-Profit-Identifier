@@ -4,7 +4,7 @@ CHROME_PROFILE_PATH = os.path.expanduser('~/chrome-profile-for-script')
 
 PROFIT_LOG_FILE = "potential_profits_log.txt"
 
-MAX_WORKERS = 5
+MAX_WORKERS = 2
 
 ITEMS_TO_CHECK_PER_TERM = 200
 

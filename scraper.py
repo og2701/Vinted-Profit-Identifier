@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import random
 from openai import OpenAI
 from dotenv import load_dotenv
 from selenium.webdriver.common.by import By
@@ -276,8 +277,17 @@ def process_item(item, search_category):
     thread_driver = None
     try:
         thread_driver = get_driver()
+        
+        time.sleep(random.uniform(1, 4))
+        
         thread_driver.get(item['link'])
         handle_popups(thread_driver)
+
+        if "You are rate limited" in thread_driver.title:
+            log_messages.append("!! Rate limited by Vinted. Skipping item.")
+            print("\n".join(log_messages))
+            time.sleep(10)
+            return
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
