@@ -93,28 +93,18 @@ def get_cex_buy_price(driver, query, log_messages):
         first_result_selector = (By.CSS_SELECTOR, "div.card-title a")
         first_result = WebDriverWait(driver, 10).until(EC.element_to_be_clickable(first_result_selector))
         
-        url_before_click = driver.current_url
+        current_url_before_click = driver.current_url
         driver.execute_script("arguments[0].click();", first_result)
         
-        try:
-            WebDriverWait(driver, 10).until(EC.url_changes(url_before_click))
-            price_container = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.trade-in-value"))
-            )
-        except TimeoutException:
-            log_messages.append(f"-> CeX: Timed out waiting for product page to load for '{query}'.")
-            log_messages.append("--- DEBUG: Page HTML at Timeout ---")
-            log_messages.append(driver.page_source)
-            log_messages.append("--- END DEBUG ---")
-            return None
+        WebDriverWait(driver, 10).until(EC.url_changes(current_url_before_click))
         
         price_text = None
         try:
-            price_element = price_container.find_element(By.XPATH, ".//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")
+            price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")))
             price_text = price_element.text
         except Exception:
             try:
-                price_element = price_container.find_element(By.XPATH, ".//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")
+                price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
                 price_text = price_element.text
             except Exception:
                 log_messages.append(f"-> CeX: Found product page but could not find price element.")
@@ -126,9 +116,6 @@ def get_cex_buy_price(driver, query, log_messages):
             log_messages.append(f"-> CeX: Found cash price £{cleaned_price}.")
             return {'price': float(cleaned_price), 'link': product_url}
         
-        return None
-    except WebDriverException as e:
-        log_messages.append(f"-> CeX: A critical WebDriver error occurred during scraping: {type(e).__name__}")
         return None
     except Exception as e:
         log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {type(e).__name__}")
@@ -203,7 +190,6 @@ def process_item(item, search_category):
     try:
         thread_driver = get_driver()
         thread_driver.get(item['link'])
-        time.sleep(1)
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
@@ -216,13 +202,12 @@ def process_item(item, search_category):
         is_scraped = False
         for attempt in range(2):
             try:
-                title_element = WebDriverWait(thread_driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content h1[class*='title']"))
+                sidebar_content = WebDriverWait(thread_driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content"))
                 )
                 
-                sidebar = thread_driver.find_element(By.CSS_SELECTOR, "div.item-page-sidebar-content")
-                title = title_element.text.strip()
-                price_text = sidebar.find_element(By.CSS_SELECTOR, "div[data-testid='item-price'] p").text
+                title = sidebar_content.find_element(By.CSS_SELECTOR, "h1[class*='title']").text.strip()
+                price_text = sidebar_content.find_element(By.CSS_SELECTOR, "div[data-testid='item-price'] p").text
                 price = float(re.sub(r'[^\d.]', '', price_text))
                 
                 item['title'] = title
