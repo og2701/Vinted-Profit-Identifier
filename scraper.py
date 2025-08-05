@@ -132,7 +132,7 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
             log_messages.append("-> CeX: Timed out waiting for search results to load.")
             return None
 
-        results = driver.find_elements(By.XPATH, "//a[contains(@href,'/sell/product-detail')]")
+        results = driver.find_elements(By.XPATH, "//div[contains(@class, 'search-product-card')]//a")
         if not results:
             log_messages.append(f"-> CeX: No search results found for query '{query}'.")
             return None
@@ -157,17 +157,18 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
 
         driver.get(best_match_url)
         try:
-            accept_btn = driver.find_element(
-                By.XPATH, "//button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'accept')]"
+            accept_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'accept')]"))
             )
             accept_btn.click()
-        except NoSuchElementException:
+        except (NoSuchElementException, TimeoutException):
             pass
 
         try:
             WebDriverWait(driver, 15).until(
-                lambda d: 'trade-in' in d.page_source.lower()
+                EC.visibility_of_element_located((By.XPATH, "//h1"))
             )
+            time.sleep(0.5)
             page_html = driver.page_source
             patterns = [
                 r'cash[^£]*£\s*([0-9]+(?:\.[0-9]+)?)',
@@ -186,9 +187,6 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
                 return {"price": cash_price, "link": driver.current_url}
             else:
                 log_messages.append("-> CeX: Could not find price in page HTML.")
-                log_messages.append("--- DEBUG: Page HTML at Price Failure ---")
-                log_messages.append(driver.page_source)
-                log_messages.append("--- END DEBUG ---")
                 return None
         except TimeoutException:
             log_messages.append("-> CeX: Timed out waiting for trade-in section.")
