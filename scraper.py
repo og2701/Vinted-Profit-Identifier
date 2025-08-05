@@ -98,17 +98,20 @@ def get_cex_buy_price(driver, query, log_messages):
         
         try:
             WebDriverWait(driver, 10).until(EC.url_changes(url_before_click))
+            price_container = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.trade-in-value"))
+            )
         except TimeoutException:
-            log_messages.append(f"-> CeX: Timed out waiting for product page to load after clicking search result for '{query}'.")
+            log_messages.append(f"-> CeX: Timed out waiting for product page to load for '{query}'.")
             return None
         
         price_text = None
         try:
-            price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")))
+            price_element = price_container.find_element(By.XPATH, ".//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")
             price_text = price_element.text
         except Exception:
             try:
-                price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
+                price_element = price_container.find_element(By.XPATH, ".//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")
                 price_text = price_element.text
             except Exception:
                 log_messages.append(f"-> CeX: Found product page but could not find price element.")
