@@ -121,87 +121,68 @@ def select_best_cex_match(vinted_item_details, cex_results, log_messages):
 def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
     if not query or query.upper() == 'N/A':
         return None
-    
-    for attempt in range(2):
+    try:
+        search_url = f"https://uk.webuy.com/sell/search/?stext={query.replace(' ', '+')}"
+        driver.get(search_url)
         try:
-            search_url = f"https://uk.webuy.com/sell/search/?stext={query.replace(' ', '+')}"
-            driver.get(search_url)
-            
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.XPATH, "//a[contains(@href,'/sell/product-detail')]")))
+        except TimeoutException:
+            log_messages.append("-> CeX: Timed out waiting for search results to load.")
+            return None
+
+        results = driver.find_elements(By.XPATH, "//a[contains(@href,'/sell/product-detail')]")
+        if not results:
+            log_messages.append(f"-> CeX: No search results found for query '{query}'.")
+            return None
+
+        cex_results = []
+        for result in results[:5]:
             try:
-                WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.ais-Hits")))
-            except TimeoutException:
-                log_messages.append("-> CeX: Timed out waiting for search results to load.")
-                if attempt == 0:
-                    time.sleep(3)
-                    continue
-                return None
-
-            results = driver.find_elements(By.CSS_SELECTOR, "div.search-product-card")
-            if not results:
-                log_messages.append(f"-> CeX: No search results found for query '{query}'.")
-                return None
-
-            cex_results = []
-            for result in results[:5]:
-                try:
-                    a = result.find_element(By.CSS_SELECTOR, "div.card-title a")
-                    title = a.get_attribute("title")
-                    link = a.get_attribute("href")
-                    if title and link:
-                        cex_results.append({"title": title, "link": link})
-                except NoSuchElementException:
-                    continue
-
-            if not cex_results:
-                log_messages.append("-> CeX: Could not parse any search results.")
-                return None
-
-            best_match_url = select_best_cex_match(vinted_item_details, cex_results, log_messages)
-            if not best_match_url:
-                return None
-
-            driver.get(best_match_url)
-            try:
-                accept_btn = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'accept')]"))
-                )
-                accept_btn.click()
-            except (NoSuchElementException, TimeoutException):
-                pass
-
-            try:
-                WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.XPATH, "//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'trade-in')]"))
-                )
-                page_text = driver.find_element(By.TAG_NAME, "body").text
-                match = re.search(r'CASH\s*£\s*([0-9]+\.?[0-9]*)', page_text, flags=re.IGNORECASE) \
-                    or re.search(r'£\s*([0-9]+\.?[0-9]*)\s*Trade-?in\s+for\s+Cash', page_text, flags=re.IGNORECASE)
-                
-                if match:
-                    cash_price = float(match.group(1))
-                    log_messages.append(f"-> CeX: Found cash price £{cash_price:.2f}.")
-                    return {"price": cash_price, "link": driver.current_url}
-                else:
-                    log_messages.append("-> CeX: Could not find price in page text.")
-                    return None
-            except TimeoutException:
-                log_messages.append("-> CeX: Timed out waiting for trade-in section.")
-                if attempt == 0:
-                    time.sleep(3)
-                    continue
-                return None
-        
-        except (TimeoutException, MaxRetryError, NewConnectionError) as e:
-            log_messages.append(f"-> CeX: Network/Timeout error on attempt {attempt + 1}: {type(e).__name__}")
-            if attempt == 0:
-                time.sleep(5)
+                title = result.get_attribute("title")
+                link = result.get_attribute("href")
+                if title and link:
+                    cex_results.append({"title": title, "link": link})
+            except Exception:
                 continue
-            return None
-        except Exception as e:
-            log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {type(e).__name__}")
-            return None
-    return None
 
+        if not cex_results:
+            log_messages.append("-> CeX: Could not parse any search results.")
+            return None
+
+        best_match_url = select_best_cex_match(vinted_item_details, cex_results, log_messages)
+        if not best_match_url:
+            return None
+
+        driver.get(best_match_url)
+        try:
+            accept_btn = driver.find_element(
+                By.XPATH, "//button[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'accept')]"
+            )
+            accept_btn.click()
+        except NoSuchElementException:
+            pass
+
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'trade-in')]"))
+            )
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+            match = re.search(r'CASH\s*£\s*([0-9]+\.?[0-9]*)', page_text, flags=re.IGNORECASE) \
+                    or re.search(r'£\s*([0-9]+\.?[0-9]*)\s*Trade-?in\s+for\s+Cash', page_text, flags=re.IGNORECASE)
+            if match:
+                cash_price = float(match.group(1))
+                log_messages.append(f"-> CeX: Found cash price £{cash_price:.2f}.")
+                return {"price": cash_price, "link": driver.current_url}
+            else:
+                log_messages.append("-> CeX: Could not find price in page text.")
+                return None
+        except TimeoutException:
+            log_messages.append("-> CeX: Timed out waiting for trade-in section.")
+            return None
+
+    except Exception as e:
+        log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {type(e).__name__}")
+        return None
 
 def scrape_vinted_item_page(driver):
     scraped_attributes = {}
