@@ -95,7 +95,11 @@ def get_cex_buy_price(driver, query, log_messages):
         url_before_click = driver.current_url
         driver.execute_script("arguments[0].click();", first_result)
         
-        WebDriverWait(driver, 10).until(EC.url_changes(url_before_click))
+        try:
+            WebDriverWait(driver, 10).until(EC.url_changes(url_before_click))
+        except TimeoutException:
+            log_messages.append(f"-> CeX: Timed out waiting for product page to load after clicking search result for '{query}'.")
+            return None
         
         price_text = None
         try:
@@ -117,7 +121,7 @@ def get_cex_buy_price(driver, query, log_messages):
         
         return None
     except Exception as e:
-        log_messages.append(f"-> CeX: An error occurred during scraping: {e}")
+        log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {e}")
         return None
 
 def scrape_vinted_item_page(driver):
