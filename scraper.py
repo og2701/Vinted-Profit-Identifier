@@ -166,7 +166,7 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
 
         try:
             WebDriverWait(driver, 15).until(
-                EC.visibility_of_element_located((By.XPATH, "//*[contains(text(), 'Trade-in value')]"))
+                EC.visibility_of_element_located((By.XPATH, "//h1"))
             )
             time.sleep(0.5)
             page_html = driver.page_source
