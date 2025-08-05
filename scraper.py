@@ -225,19 +225,29 @@ def scrape_vinted_item_page(driver):
     
     return scraped_attributes, description
 
+def handle_popups(driver):
+    try:
+        accept_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")))
+        accept_button.click()
+        time.sleep(0.5)
+    except (NoSuchElementException, TimeoutException):
+        pass
+
+    try:
+        dialog_close_button = WebDriverWait(driver, 2).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='dialog-close-button']"))
+        )
+        dialog_close_button.click()
+        time.sleep(0.5)
+    except (NoSuchElementException, TimeoutException):
+        pass
+
 def scrape_vinted_search_page(driver, query, num_items_to_check=200):
     encoded_query = query.replace(' ', '+')
     search_url = f"https://www.vinted.co.uk/catalog?search_text={encoded_query}&order=price_asc&country_id=1"
     
     driver.get(search_url)
-    time.sleep(1)
-
-    try:
-        accept_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")))
-        accept_button.click()
-        time.sleep(1)
-    except Exception:
-        pass
+    handle_popups(driver)
 
     item_links = set()
     last_height = driver.execute_script("return document.body.scrollHeight")
@@ -268,7 +278,7 @@ def process_item(item, search_category):
     try:
         thread_driver = get_driver()
         thread_driver.get(item['link'])
-        time.sleep(2)
+        handle_popups(thread_driver)
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
@@ -304,6 +314,7 @@ def process_item(item, search_category):
                     log_messages.append(f"!! Could not parse title/price, refreshing and retrying. Error: {type(e).__name__}")
                     time.sleep(1)
                     thread_driver.refresh()
+                    handle_popups(thread_driver)
                     time.sleep(3)
                 else:
                     log_messages.append(f"!! Failed to parse title/price after retrying. Skipping. Error: {type(e).__name__}")
