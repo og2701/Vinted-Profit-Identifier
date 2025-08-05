@@ -125,7 +125,9 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
         search_url = f"https://uk.webuy.com/sell/search/?stext={query.replace(' ', '+')}"
         driver.get(search_url)
         try:
-            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.XPATH, "//a[contains(@href,'/sell/product-detail')]")))
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.XPATH, "//a[contains(@href,'/sell/product-detail')]"))
+            )
         except TimeoutException:
             log_messages.append("-> CeX: Timed out waiting for search results to load.")
             return None
@@ -164,17 +166,26 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
 
         try:
             WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, "//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'trade-in')]"))
+                lambda d: 'trade-in' in d.page_source.lower()
             )
-            page_text = driver.find_element(By.TAG_NAME, "body").text
-            match = re.search(r'CASH\s*£\s*([0-9]+\.?[0-9]*)', page_text, flags=re.IGNORECASE) \
-                    or re.search(r'£\s*([0-9]+\.?[0-9]*)\s*Trade-?in\s+for\s+Cash', page_text, flags=re.IGNORECASE)
+            page_html = driver.page_source
+            patterns = [
+                r'cash[^£]*£\s*([0-9]+(?:\.[0-9]+)?)',
+                r'£\s*([0-9]+(?:\.[0-9]+)?)\s*trade-?in[^£]*cash',
+            ]
+            match = None
+            for pat in patterns:
+                m = re.search(pat, page_html, flags=re.IGNORECASE)
+                if m:
+                    match = m
+                    break
+            
             if match:
                 cash_price = float(match.group(1))
                 log_messages.append(f"-> CeX: Found cash price £{cash_price:.2f}.")
                 return {"price": cash_price, "link": driver.current_url}
             else:
-                log_messages.append("-> CeX: Could not find price in page text.")
+                log_messages.append("-> CeX: Could not find price in page HTML.")
                 return None
         except TimeoutException:
             log_messages.append("-> CeX: Timed out waiting for trade-in section.")
