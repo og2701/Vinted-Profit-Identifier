@@ -31,7 +31,7 @@ def get_driver():
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        service = Service(executable_path=config.CHROMEDRIVER_PATH)
+        service = Service()
         driver = webdriver.Chrome(service=service, options=options)
         setattr(thread_local, 'driver', driver)
         
