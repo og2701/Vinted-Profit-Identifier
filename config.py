@@ -1,7 +1,5 @@
 import os
 
-CHROMEDRIVER_PATH = os.path.expanduser('~/Documents/chromedriver')
-
 CHROME_PROFILE_PATH = os.path.expanduser('~/chrome-profile-for-script')
 
 PROFIT_LOG_FILE = "potential_profits_log.txt"
