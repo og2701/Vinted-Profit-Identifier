@@ -161,22 +161,22 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
         
         price_text = None
         try:
-            price_element = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']"))
+            price_container = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.trade-in-value"))
             )
+            
+            price_element = price_container.find_element(By.XPATH, ".//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")
             price_text = price_element.text
         except TimeoutException:
-            try:
-                price_element = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span"))
-                )
-                price_text = price_element.text
-            except TimeoutException:
-                log_messages.append(f"-> CeX: Found product page but could not find price element after waiting.")
-                return None
-        except Exception as e:
-            log_messages.append(f"-> CeX: An error occurred while finding the price: {type(e).__name__}")
+            log_messages.append(f"-> CeX: Timed out waiting for price info on product page.")
             return None
+        except Exception:
+            try:
+                price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
+                price_text = price_element.text
+            except Exception:
+                 log_messages.append(f"-> CeX: Found product page but could not find price element.")
+                 return None
 
         if price_text:
             cleaned_price = re.sub(r'[^\d.]', '', price_text)
