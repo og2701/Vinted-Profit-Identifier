@@ -67,7 +67,7 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_me
         log_messages.append(f"-> AI query failed for '{title}': {e}")
         return title
 
-def get_cex_buy_price(driver, query):
+def get_cex_buy_price(driver, query, log_messages):
     if not query or query.upper() == 'N/A':
         return None
         
@@ -84,6 +84,7 @@ def get_cex_buy_price(driver, query):
         
         try:
             if driver.find_element(By.CSS_SELECTOR, "div.cx-no-results").is_displayed():
+                log_messages.append(f"-> CeX: No search results found for query '{query}'.")
                 return None
         except NoSuchElementException:
             pass
@@ -105,15 +106,18 @@ def get_cex_buy_price(driver, query):
                 price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
                 price_text = price_element.text
             except Exception:
+                log_messages.append(f"-> CeX: Found product page but could not find price element.")
                 return None
 
         if price_text:
             cleaned_price = re.sub(r'[^\d.]', '', price_text)
             product_url = driver.current_url
+            log_messages.append(f"-> CeX: Found cash price £{cleaned_price}.")
             return {'price': float(cleaned_price), 'link': product_url}
         
         return None
-    except Exception:
+    except Exception as e:
+        log_messages.append(f"-> CeX: An error occurred during scraping: {e}")
         return None
 
 def scrape_vinted_item_page(driver):
@@ -185,6 +189,7 @@ def process_item(item, search_category):
     try:
         thread_driver = get_driver()
         thread_driver.get(item['link'])
+        time.sleep(1)
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
@@ -197,11 +202,12 @@ def process_item(item, search_category):
         is_scraped = False
         for attempt in range(2):
             try:
-                sidebar = WebDriverWait(thread_driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content"))
+                title_element = WebDriverWait(thread_driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content h1[class*='title']"))
                 )
                 
-                title = sidebar.find_element(By.CSS_SELECTOR, "h1[class*='title']").text.strip()
+                sidebar = thread_driver.find_element(By.CSS_SELECTOR, "div.item-page-sidebar-content")
+                title = title_element.text.strip()
                 price_text = sidebar.find_element(By.CSS_SELECTOR, "div[data-testid='item-price'] p").text
                 price = float(re.sub(r'[^\d.]', '', price_text))
                 
@@ -239,7 +245,7 @@ def process_item(item, search_category):
         item['postage'] = postage
 
         clean_query = generate_cex_query_from_vinted_listing(item, search_category, log_messages)
-        cex_data = get_cex_buy_price(thread_driver, clean_query)
+        cex_data = get_cex_buy_price(thread_driver, clean_query, log_messages)
 
         postage_cost = item.get('postage')
         if cex_data and isinstance(postage_cost, (int, float)):
@@ -262,4 +268,3 @@ def process_item(item, search_category):
         log_messages.append(f"!! An unexpected error occurred: {e}")
     finally:
         print("\n".join(log_messages))
-
