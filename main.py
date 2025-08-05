@@ -25,7 +25,7 @@ def main():
                 print("No items found to process. Moving to the next search term.")
                 continue
 
-            print(f"Found {len(items_to_process)} items to analyze. Starting parallel processing...")
+            print(f"Found {len(items_to_process)} items to analyse. Starting parallel processing...")
             
         finally:
             if search_page_driver:
