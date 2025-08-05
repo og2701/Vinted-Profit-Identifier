@@ -44,7 +44,7 @@ jobs:
       run: python main.py
 
     - name: Upload profit log
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: profit-log
         path: potential_profits_log.txt
