@@ -13,10 +13,6 @@ _paths_for_cleanup = []
 driver_lock = threading.Lock()
 log_lock = threading.Lock()
 
-def print_and_log(message):
-    with log_lock:
-        print(message)
-
 def get_driver():
     driver = getattr(thread_local, 'driver', None)
     if driver is None:
@@ -35,7 +31,6 @@ def get_driver():
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        # Use a managed service for the chromedriver
         service = Service()
         driver = webdriver.Chrome(service=service, options=options)
         setattr(thread_local, 'driver', driver)
@@ -54,13 +49,13 @@ def cleanup_drivers():
             except Exception:
                 pass
         
-        print_and_log("\nCleaning up temporary profile directories...")
+        print("\nCleaning up temporary profile directories...")
         for path in _paths_for_cleanup:
             try:
                 shutil.rmtree(path)
-                print_and_log(f" -> Removed: {path}")
+                print(f" -> Removed: {path}")
             except OSError as e:
-                print_and_log(f" -> Error removing directory {path}: {e}")
+                print(f" -> Error removing directory {path}: {e}")
         
         _drivers_for_cleanup = []
         _paths_for_cleanup = []
@@ -102,4 +97,3 @@ Vinted item: {item['title']}
     with log_lock:
         with open(config.PROFIT_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(log_entry)
-        print_and_log(f"✅ PROFIT LOGGED: £{pnl:.2f} for {item['title']}")
