@@ -68,43 +68,104 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_me
         log_messages.append(f"-> AI query failed for '{title}': {e}")
         return title
 
-def get_cex_buy_price(driver, query, log_messages):
+def select_best_cex_match(vinted_item_details, cex_results, log_messages):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        log_messages.append("-> ERROR: OPENAI_API_KEY not found. Cannot select best match.")
+        return None
+
+    formatted_results = "\n".join([f"{i+1}. Title: {res['title']}, Link: {res['link']}" for i, res in enumerate(cex_results)])
+    
+    try:
+        client = OpenAI(api_key=api_key)
+        prompt = f"""
+        You are an expert product matcher. A user wants to find the CeX equivalent of a Vinted item.
+        Based on the Vinted item details below, choose the best match from the list of CeX search results.
+
+        **Vinted Item Details:**
+        - Title: "{vinted_item_details.get('title', 'N/A')}"
+        - Description: "{vinted_item_details.get('description', 'N/A')}"
+        - Attributes: {vinted_item_details.get('scraped_attributes', {})}
+
+        **CeX Search Results:**
+        {formatted_results}
+
+        **Instructions:**
+        1. Carefully compare the Vinted item's platform (e.g., PS5, Xbox, PC), edition (e.g., Day One Edition, Standard), and core name to the CeX results.
+        2. Select the most accurate match. For example, if the Vinted item is for PS5, do not choose a PC or Xbox version.
+        3. If there is a clear and confident match, return ONLY the full URL of that item.
+        4. If no result is a clear match, return the single word: N/A
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an expert product matcher. Your task is to find the best match for a Vinted item from a list of CeX search results and return only the URL or 'N/A'."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0
+        )
+        best_match_url = response.choices[0].message.content.strip()
+        
+        if best_match_url and best_match_url.startswith('http'):
+            log_messages.append(f"-> AI selected best match: {best_match_url}")
+            return best_match_url
+        else:
+            log_messages.append("-> AI determined no suitable match was found in CeX results.")
+            return None
+    except Exception as e:
+        log_messages.append(f"-> AI match selection failed: {e}")
+        return None
+
+
+def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
     if not query or query.upper() == 'N/A':
         return None
         
     try:
-        search_url = f"https://uk.webuy.com/search?stext={query.replace(' ', '+')}"
+        search_url = f"https://uk.webuy.com/sell/search/?stext={query.replace(' ', '+')}"
         driver.get(search_url)
         
         try:
-            accept_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Accept All']")))
-            accept_button.click()
-            time.sleep(0.5)
-        except Exception:
-            pass
-        
-        try:
-            if driver.find_element(By.CSS_SELECTOR, "div.cx-no-results").is_displayed():
-                log_messages.append(f"-> CeX: No search results found for query '{query}'.")
-                return None
-        except NoSuchElementException:
-            pass
+            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.ais-Hits")))
+        except TimeoutException:
+            log_messages.append("-> CeX: Timed out waiting for search results to load.")
+            return None
 
-        first_result_selector = (By.CSS_SELECTOR, "div.card-title a")
-        first_result = WebDriverWait(driver, 10).until(EC.element_to_be_clickable(first_result_selector))
+        search_results_elements = driver.find_elements(By.CSS_SELECTOR, "div.search-product-card")
+        if not search_results_elements:
+            log_messages.append(f"-> CeX: No search results found for query '{query}'.")
+            return None
+
+        cex_results = []
+        for result in search_results_elements[:5]:
+            try:
+                title_element = result.find_element(By.CSS_SELECTOR, "div.card-title a")
+                title = title_element.get_attribute('title')
+                link = title_element.get_attribute('href')
+                if title and link:
+                    cex_results.append({'title': title, 'link': link})
+            except NoSuchElementException:
+                continue
         
-        current_url_before_click = driver.current_url
-        driver.execute_script("arguments[0].click();", first_result)
-        
-        WebDriverWait(driver, 10).until(EC.url_changes(current_url_before_click))
+        if not cex_results:
+            log_messages.append("-> CeX: Could not parse any search results.")
+            return None
+
+        best_match_url = select_best_cex_match(vinted_item_details, cex_results, log_messages)
+
+        if not best_match_url:
+            return None
+
+        driver.get(best_match_url)
         
         price_text = None
         try:
-            price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")))
+            price_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")))
             price_text = price_element.text
         except Exception:
             try:
-                price_element = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
+                price_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Trade-in for Cash')]/preceding-sibling::span")))
                 price_text = price_element.text
             except Exception:
                 log_messages.append(f"-> CeX: Found product page but could not find price element.")
@@ -190,6 +251,7 @@ def process_item(item, search_category):
     try:
         thread_driver = get_driver()
         thread_driver.get(item['link'])
+        time.sleep(1)
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
@@ -244,7 +306,7 @@ def process_item(item, search_category):
         item['postage'] = postage
 
         clean_query = generate_cex_query_from_vinted_listing(item, search_category, log_messages)
-        cex_data = get_cex_buy_price(thread_driver, clean_query, log_messages)
+        cex_data = get_cex_buy_price(thread_driver, clean_query, item, log_messages)
 
         postage_cost = item.get('postage')
         if cex_data and isinstance(postage_cost, (int, float)):
