@@ -15,11 +15,11 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from utils import get_driver, log_profit_detailed
 
-def generate_cex_query_from_vinted_listing(vinted_item_details, category):
+def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_messages):
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("-> ERROR: OPENAI_API_KEY not found in .env file. Using item title as fallback.")
+        log_messages.append("-> ERROR: OPENAI_API_KEY not found in .env file. Using item title as fallback.")
         return vinted_item_details.get('title', 'N/A')
 
     title = vinted_item_details.get('title', '')
@@ -61,10 +61,10 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category):
             temperature=0.0
         )
         clean_query = response.choices[0].message.content.strip()
-        print(f"-> AI generated query for '{title}': '{clean_query}'")
+        log_messages.append(f"-> AI generated query for '{title}': '{clean_query}'")
         return clean_query
     except Exception as e:
-        print(f"-> AI query failed for '{title}': {e}")
+        log_messages.append(f"-> AI query failed for '{title}': {e}")
         return title
 
 def get_cex_buy_price(driver, query):
@@ -180,15 +180,16 @@ def scrape_vinted_search_page(driver, query, num_items_to_check=200):
 
 
 def process_item(item, search_category):
-    thread_driver = get_driver()
-    print(f"Processing link: {item['link']}")
-
+    log_messages = [f"Processing link: {item['link']}"]
+    thread_driver = None
     try:
+        thread_driver = get_driver()
         thread_driver.get(item['link'])
         
         try:
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
-            print(f"-> Item is sold, skipping: {item['link']}")
+            log_messages.append(f"-> Item is sold, skipping.")
+            print("\n".join(log_messages))
             return
         except NoSuchElementException:
             pass
@@ -210,14 +211,16 @@ def process_item(item, search_category):
                 break
             except (TimeoutException, ValueError, NoSuchElementException, StaleElementReferenceException) as e:
                 if attempt == 0:
-                    print(f"!! Could not parse title/price for {item['link']}, refreshing and retrying. Error: {type(e).__name__}")
+                    log_messages.append(f"!! Could not parse title/price, refreshing and retrying. Error: {type(e).__name__}")
                     thread_driver.refresh()
                     time.sleep(2)
                 else:
-                    print(f"!! Failed to parse title/price for {item['link']} after retrying. Skipping. Error: {type(e).__name__}")
+                    log_messages.append(f"!! Failed to parse title/price after retrying. Skipping. Error: {type(e).__name__}")
+                    print("\n".join(log_messages))
                     return
         
         if not is_scraped:
+            print("\n".join(log_messages))
             return
 
         scraped_attributes, description = scrape_vinted_item_page(thread_driver)
@@ -235,7 +238,7 @@ def process_item(item, search_category):
             pass
         item['postage'] = postage
 
-        clean_query = generate_cex_query_from_vinted_listing(item, search_category)
+        clean_query = generate_cex_query_from_vinted_listing(item, search_category, log_messages)
         cex_data = get_cex_buy_price(thread_driver, clean_query)
 
         postage_cost = item.get('postage')
@@ -246,14 +249,17 @@ def process_item(item, search_category):
             pnl = cex_price - total_vinted_cost
 
             if pnl > 0:
-                print(f"✅ PROFIT FOUND: £{pnl:.2f} for {item['title']}")
+                log_messages.append(f"✅ PROFIT FOUND: £{pnl:.2f} for {item['title']}")
                 log_profit_detailed(item, cex_data, pnl, total_vinted_cost, search_category)
             else:
-                print(f"❌ Loss: £{abs(pnl):.2f} for {item['title']}")
+                log_messages.append(f"❌ Loss: £{abs(pnl):.2f} for {item['title']}")
         else:
-            print(f"-> No deal for {item['title']} (No CeX price or postage info found).")
+            log_messages.append(f"-> No deal for {item['title']} (No CeX price or postage info found).")
 
     except (MaxRetryError, NewConnectionError) as e:
-        print(f"!! Network connection error for {item.get('link', 'N/A')}: {type(e).__name__}. The driver for this thread may have crashed.")
+        log_messages.append(f"!! Network connection error: {type(e).__name__}. The driver for this thread may have crashed.")
     except Exception as e:
-        print(f"!! An unexpected error occurred while processing item {item.get('link', 'N/A')}: {e}")
+        log_messages.append(f"!! An unexpected error occurred: {e}")
+    finally:
+        print("\n".join(log_messages))
+
