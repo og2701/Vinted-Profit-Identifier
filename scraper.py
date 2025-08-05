@@ -37,7 +37,7 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category):
         prompt = f"""
         From the following Vinted product title, description, and additional scraped attributes, generate a concise search query for the CeX website.
         - The query should be the core product name, model, and any other critical, specific identifiers relevant for CeX (e.g., "Hogwarts Legacy PS5", "iPhone 13 Pro Max 256GB Unlocked", "Xbox Series X 1TB Console").
-        - Prioritize specific identifiers like Brand, Model, Platform, Storage, and any other attributes that define the specific variant of the product CeX would buy.
+        - Prioritise specific identifiers like Brand, Model, Platform, Storage, and any other attributes that define the specific variant of the product CeX would buy.
         - Use information from the description to clarify or enhance the query if it provides essential product details (e.g., "Steelbook Edition", "unlocked", specific damage that affects CeX valuation).
         - Ignore extra words like "sealed", "disc only", "for", "very good condition", "cracked screen", "fast postage", "uploaded X hours ago", "bought as a present", "used a handful of times", "disk is scratch free" etc., unless they are essential product variations or critical condition notes (e.g., "unlocked" for phones, major damage).
         - If the title/details indicate multiple items (e.g., a bundle of games), try to create a query for the most prominent single item that CeX would likely buy, or the first identifiable main product. If it's too complex or clearly multiple distinct items not sold together by CeX, return 'N/A'.
@@ -55,7 +55,7 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a highly intelligent product normalization assistant, skilled at creating concise CeX search queries from Vinted product details. Your output must ONLY be the clean search query."},
+                {"role": "system", "content": "You are a highly intelligent product normalisation assistant, skilled at creating concise CeX search queries from Vinted product details. Your output must ONLY be the clean search query."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.0
