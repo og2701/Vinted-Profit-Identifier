@@ -121,7 +121,7 @@ def get_cex_buy_price(driver, query, log_messages):
         
         return None
     except Exception as e:
-        log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {e}")
+        log_messages.append(f"-> CeX: An unexpected error occurred during scraping: {type(e).__name__}")
         return None
 
 def scrape_vinted_item_page(driver):
