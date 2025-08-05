@@ -186,6 +186,9 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
                 return {"price": cash_price, "link": driver.current_url}
             else:
                 log_messages.append("-> CeX: Could not find price in page HTML.")
+                log_messages.append("--- DEBUG: Page HTML at Price Failure ---")
+                log_messages.append(driver.page_source)
+                log_messages.append("--- END DEBUG ---")
                 return None
         except TimeoutException:
             log_messages.append("-> CeX: Timed out waiting for trade-in section.")
