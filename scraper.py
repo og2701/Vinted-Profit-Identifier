@@ -1,7 +1,6 @@
 import os
 import re
 import time
-import random
 from openai import OpenAI
 from dotenv import load_dotenv
 from selenium.webdriver.common.by import By
@@ -17,9 +16,6 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 from utils import get_driver, log_profit_detailed, print_and_log
 
 def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_messages):
-    """
-    Uses OpenAI API to generate a clean search query from Vinted item details.
-    """
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -72,9 +68,6 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_me
         return title
 
 def get_cex_buy_price(driver, query, log_messages):
-    """
-    Scrapes the CeX 'webuy' price for a given query with improved stability.
-    """
     if not query or query.upper() == 'N/A':
         return None
         
@@ -97,14 +90,14 @@ def get_cex_buy_price(driver, query, log_messages):
             pass
 
         first_result_selector = (By.CSS_SELECTOR, "a.product-name")
-        first_result = WebDriverWait(driver, 15).until(EC.element_to_be_clickable(first_result_selector))
+        first_result = WebDriverWait(driver, 10).until(EC.element_to_be_clickable(first_result_selector))
         
         log_messages.append(f"-> CeX: Clicking first result '{first_result.text.strip()}'")
         
         driver.execute_script("arguments[0].click();", first_result)
         
         price_element_selector = (By.XPATH, "//div[contains(@class, 'sell-cta-row')]//div[strong[normalize-space(text())='CASH']]/span[@class='offer-price']")
-        price_element = WebDriverWait(driver, 15).until(EC.visibility_of_element_located(price_element_selector))
+        price_element = WebDriverWait(driver, 10).until(EC.presence_of_element_located(price_element_selector))
         price_text = price_element.text
 
         if price_text:
@@ -123,9 +116,6 @@ def get_cex_buy_price(driver, query, log_messages):
 
 
 def scrape_vinted_item_page(driver):
-    """
-    Scrapes attributes and description from a Vinted item page.
-    """
     scraped_attributes = {}
     description = ""
     
@@ -134,18 +124,12 @@ def scrape_vinted_item_page(driver):
         detail_items = details_container.find_elements(By.CSS_SELECTOR, "div.details-list__item")
 
         for item in detail_items:
-            for attempt in range(2):
-                try:
-                    label = item.find_element(By.CSS_SELECTOR, "div.details-list__item-title").text.strip()
-                    value = item.find_element(By.CSS_SELECTOR, "div.details-list__item-value").text.strip()
-                    scraped_attributes[label] = value
-                    break
-                except StaleElementReferenceException:
-                    if attempt == 1:
-                        raise
-                    time.sleep(0.5)
-                except NoSuchElementException:
-                    break
+            try:
+                label = item.find_element(By.CSS_SELECTOR, "div.details-list__item-title").text.strip()
+                value = item.find_element(By.CSS_SELECTOR, "div.details-list__item-value").text.strip()
+                scraped_attributes[label] = value
+            except NoSuchElementException:
+                continue
     except Exception:
         pass
 
@@ -158,9 +142,6 @@ def scrape_vinted_item_page(driver):
     return scraped_attributes, description
 
 def scrape_vinted_search_page(driver, query, num_items_to_check=200):
-    """
-    Scrapes item links from Vinted search, handling infinite scroll.
-    """
     encoded_query = query.replace(' ', '+')
     search_url = f"https://www.vinted.co.uk/catalog?search_text={encoded_query}&order=price_asc&country_id=1"
     
@@ -205,6 +186,7 @@ def process_item(item, search_category):
         thread_driver.get(item['link'])
         
         try:
+            # Check if the item is sold first
             thread_driver.find_element(By.CSS_SELECTOR, "div[data-testid='item-status-banner']")
             log_messages.append("-> Item is sold, skipping.")
             print_and_log("\n".join(log_messages))
@@ -213,10 +195,10 @@ def process_item(item, search_category):
             pass
 
         is_scraped = False
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                sidebar_content = WebDriverWait(thread_driver, 15).until(
-                    EC.visibility_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content"))
+                sidebar_content = WebDriverWait(thread_driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content"))
                 )
                 
                 title = sidebar_content.find_element(By.CSS_SELECTOR, "h1[class*='title']").text.strip()
@@ -228,12 +210,12 @@ def process_item(item, search_category):
                 is_scraped = True
                 break
             except (TimeoutException, ValueError, NoSuchElementException, StaleElementReferenceException) as e:
-                if attempt < 2:
-                    log_messages.append(f"!! Could not parse title/price (Attempt {attempt + 1}), retrying. Error: {type(e).__name__}")
-                    time.sleep(random.uniform(1, 2)) # Add random delay
+                if attempt == 0:
+                    log_messages.append(f"!! Could not parse title/price, refreshing and retrying. Error: {type(e).__name__}")
                     thread_driver.refresh()
+                    time.sleep(2)
                 else:
-                    log_messages.append(f"!! Failed to parse title/price after retries. Skipping. Error: {type(e).__name__}")
+                    log_messages.append(f"!! Failed to parse title/price after retrying. Skipping. Error: {type(e).__name__}")
                     print_and_log("\n".join(log_messages))
                     return
         
@@ -248,7 +230,7 @@ def process_item(item, search_category):
         postage = 'N/A'
         try:
             postage_selector = (By.CSS_SELECTOR, "h3[data-testid='item-shipping-banner-price']")
-            postage_element = WebDriverWait(thread_driver, 5).until(EC.visibility_of_element_located(postage_selector))
+            postage_element = WebDriverWait(thread_driver, 3).until(EC.presence_of_element_located(postage_selector))
             postage_text = postage_element.text
             cleaned_postage = re.sub(r'[^\d.]', '', postage_text)
             postage = float(cleaned_postage)
@@ -256,8 +238,6 @@ def process_item(item, search_category):
             pass
         item['postage'] = postage
 
-        time.sleep(random.uniform(1, 3))
-        
         clean_query = generate_cex_query_from_vinted_listing(item, search_category, log_messages)
         cex_data = get_cex_buy_price(thread_driver, clean_query, log_messages)
 
