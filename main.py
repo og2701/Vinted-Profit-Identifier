@@ -13,7 +13,7 @@ def main():
         try:
             print(f"\n--- Scraping Vinted for: '{term}' ---")
             
-            service = Service(executable_path=config.CHROMEDRIVER_PATH)
+            service = Service()
             options = Options()
             options.add_argument("--headless")
             options.add_argument("--log-level=3")
