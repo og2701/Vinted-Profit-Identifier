@@ -103,6 +103,9 @@ def get_cex_buy_price(driver, query, log_messages):
             )
         except TimeoutException:
             log_messages.append(f"-> CeX: Timed out waiting for product page to load for '{query}'.")
+            log_messages.append("--- DEBUG: Page HTML at Timeout ---")
+            log_messages.append(driver.page_source)
+            log_messages.append("--- END DEBUG ---")
             return None
         
         price_text = None
