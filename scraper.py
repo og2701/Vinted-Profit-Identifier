@@ -38,10 +38,10 @@ def generate_cex_query_from_vinted_listing(vinted_item_details, category, log_me
         client = OpenAI(api_key=api_key)
         prompt = f"""
         From the following Vinted product title, description, and additional scraped attributes, generate a concise search query for the CeX website.
-        - The query should be the core product name, model, and any other critical, specific identifiers relevant for CeX (e.g., "Hogwarts Legacy PS5", "iPhone 13 Pro Max 256GB Unlocked", "Xbox Series X 1TB Console").
-        - Prioritise specific identifiers like Brand, Model, Platform, Storage, and any other attributes that define the specific variant of the product CeX would buy.
-        - Use information from the description to clarify or enhance the query if it provides essential product details (e.g., "Steelbook Edition", "unlocked", specific damage that affects CeX valuation).
-        - Ignore extra words like "sealed", "disc only", "for", "very good condition", "cracked screen", "fast postage", "uploaded X hours ago", "bought as a present", "used a handful of times", "disk is scratch free" etc., unless they are essential product variations or critical condition notes (e.g., "unlocked" for phones, major damage).
+        - The query should be the core product name and platform ONLY (e.g., "Hogwarts Legacy PS5", "Xbox Series X 1TB Console").
+        - CeX's search engine is very strict. DO NOT include extra details like "Steelbook Edition", "unlocked", "sealed", or condition notes unless it is the core identity of the product.
+        - Prioritise specific identifiers like Brand, Model, Platform, Storage.
+        - Ignore extra words like "disc only", "for", "very good condition", "cracked screen", "fast postage", "uploaded X hours ago", "bought as a present", "used a handful of times", "disk is scratch free" etc.
         - If the title/details indicate multiple items (e.g., a bundle of games), try to create a query for the most prominent single item that CeX would likely buy, or the first identifiable main product. If it's too complex or clearly multiple distinct items not sold together by CeX, return 'N/A'.
         - If the item is a generic accessory (like a 'case', 'cable', 'stand', 'controller grip') and not a specific, named product that CeX would buy (like a specific controller or console), return the single word: N/A
         Category: "{category}"
@@ -126,7 +126,7 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
         search_url = f"https://uk.webuy.com/sell/search/?stext={query.replace(' ', '+')}"
         driver.get(search_url)
         try:
-            WebDriverWait(driver, 30).until(
+            WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//a[contains(@href,'/sell/product-detail')]"))
             )
         except TimeoutException:
@@ -166,7 +166,7 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
             pass
 
         try:
-            WebDriverWait(driver, 15).until(
+            WebDriverWait(driver, 10).until(
                 EC.visibility_of_element_located((By.XPATH, "//h1"))
             )
             time.sleep(0.5)
@@ -174,6 +174,8 @@ def get_cex_buy_price(driver, query, vinted_item_details, log_messages):
             patterns = [
                 r'cash[^£]*£\s*([0-9]+(?:\.[0-9]+)?)',
                 r'£\s*([0-9]+(?:\.[0-9]+)?)\s*trade-?in[^£]*cash',
+                r'Cash\s*£\s*([0-9]+(?:\.[0-9]+)?)',
+                r'WeBuy\s*for\s*Cash\s*£\s*([0-9]+(?:\.[0-9]+)?)'
             ]
             match = None
             for pat in patterns:
@@ -300,20 +302,27 @@ def process_item(item, search_category):
         is_scraped = False
         for attempt in range(2):
             try:
-                price_element = WebDriverWait(thread_driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid='item-price'] p"))
+                sidebar_content = WebDriverWait(thread_driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.item-page-sidebar-content"))
                 )
-                
-                sidebar_content = thread_driver.find_element(By.CSS_SELECTOR, "div.item-page-sidebar-content")
-                
                 title = sidebar_content.find_element(By.CSS_SELECTOR, "h1[class*='title']").text.strip()
-                price_text = price_element.text
-
-                if not price_text or not any(char.isdigit() for char in price_text):
-                    raise ValueError("Price text not found or invalid.")
-
-                price = float(re.sub(r'[^\d.]', '', price_text))
                 
+                try:
+                    price_element = WebDriverWait(thread_driver, 15).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid='item-price'] p"))
+                    )
+                    price_text = price_element.text
+                    if not price_text or not any(char.isdigit() for char in price_text):
+                        raise ValueError("Price text not found or invalid.")
+                    price = float(re.sub(r'[^\d.]', '', price_text))
+                except (TimeoutException, ValueError, NoSuchElementException):
+                    # Fallback to meta tag if UI extraction fails
+                    log_messages.append("-> Falling back to meta tag for price.")
+                    meta_price_element = WebDriverWait(thread_driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "meta[property='product:price:amount']"))
+                    )
+                    price = float(meta_price_element.get_attribute("content"))
+
                 item['title'] = title
                 item['price'] = price
                 is_scraped = True
@@ -346,10 +355,16 @@ def process_item(item, search_category):
             postage_selector = (By.CSS_SELECTOR, "h3[data-testid='item-shipping-banner-price']")
             postage_element = WebDriverWait(thread_driver, 3).until(EC.presence_of_element_located(postage_selector))
             postage_text = postage_element.text
-            cleaned_postage = re.sub(r'[^\d.]', '', postage_text)
-            postage = float(cleaned_postage)
+            match = re.search(r'£\s*(\d+(?:\.\d{2})?)', postage_text)
+            if match:
+                postage = float(match.group(1))
+            else:
+                cleaned_postage = re.sub(r'[^\d.]', '', postage_text)
+                postage = float(cleaned_postage) if cleaned_postage else 2.99
         except Exception:
-            pass
+            log_messages.append("-> Defaulting postage to £2.99 as it could not be extracted.")
+            postage = 2.99
+            
         item['postage'] = postage
 
         clean_query = generate_cex_query_from_vinted_listing(item, search_category, log_messages)
@@ -358,7 +373,7 @@ def process_item(item, search_category):
         postage_cost = item.get('postage')
         if cex_data and isinstance(postage_cost, (int, float)):
             cex_price = cex_data['price']
-            buyer_protection_fee = 1.00 + (item['price'] * 0.05)
+            buyer_protection_fee = 0.70 + (item['price'] * 0.05)
             total_vinted_cost = item['price'] + postage_cost + buyer_protection_fee
             pnl = cex_price - total_vinted_cost
 
